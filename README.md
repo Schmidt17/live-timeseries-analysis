@@ -9,3 +9,4 @@ Currently plots and analyses a synthetic, generated signal.
 - tensorflow
 - pyqtgraph
 - multiprocessing
+- winsound for the Beep (thus Windows only)

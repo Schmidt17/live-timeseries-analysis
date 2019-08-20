@@ -1,7 +1,12 @@
 import numpy as np
-import tensorflow as tf
-
-tf.enable_eager_execution()
+import warnings
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    import tensorflow as tf
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+    
+tf.compat.v1.enable_eager_execution()
 
 model = tf.keras.Sequential()
 model.add(tf.keras.layers.LSTM(16))
