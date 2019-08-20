@@ -49,11 +49,11 @@ def print_prediction(pipe):
         samples, start_times = pipe.recv()  # wait for new batch of samples to arrive
 
         estimates = model.predict(samples)  # get the model class probabilities (output shape (batch_size, num_classes))
-        prediction = np.argmax(estimates, axis=-1).flatten()  # get the class predictions
+        prediction = np.argmax(estimates, axis=-1)  # get the class predictions (1D, shape (batch_size,))
 
         spike_candidates = np.where(prediction != 0)[0]  # now look at all samples which get classified as not class 0 (background noise)
         if spike_candidates.size > 0:  # if there are any:
-            max_prediction = np.max(estimates[spike_candidates], axis=-1).flatten()  # get the highest class probabiliy for each non-noise sample ...
+            max_prediction = np.max(estimates[spike_candidates], axis=-1)  # get the highest class probabiliy for each non-noise sample (shape (batch_size,)) ...
             strongest_pred_pos = np.argmax(max_prediction)  # ... and check which one has the highest probability for whatever class it happens to be
             if max_prediction[strongest_pred_pos] > 0.9:  # if the confidence is above 90%, we accept it as a detection!
                 accepted_sample_index = spike_candidates[strongest_pred_pos]  # make sure to convert the only-non-noise-index "strongest_pred_pos" back to the overall-sample-index by feeding it back into "spike_candidates"
