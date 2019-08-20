@@ -31,6 +31,15 @@ def start_event():
     global spike_type
     spike_type = np.random.randint(1, 3)
 
+def beep_function(pipe):
+    import winsound  # used for making a beep sound on detection
+    beep_frequencies = {1: 1200, 2: 400}  # frequencies for each spike type
+    beep_duration = 500  # ms
+
+    while True:
+        spike_id = pipe.recv()
+        winsound.Beep(beep_frequencies[spike_id], beep_duration)  # Beep. Just for fun.
+
 def print_prediction(pipe):
     """
     Performs the classification. 
@@ -38,10 +47,18 @@ def print_prediction(pipe):
     Data is fed from the main process over a multiprocessing Pipe and the classification
     results are returned via the same Pipe.
     """
-    import tensorflow as tf
-    tf.TF_CPP_MIN_LOG_LEVEL=2
-    tf.enable_eager_execution()
+    print("Loading detector model ...")
+
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        import tensorflow as tf
+    import os
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+        
+    tf.compat.v1.enable_eager_execution()
     model = tf.keras.models.load_model("spike_detector_classes3_units16_windowsize17.h5")
+
     print("")
     print("Ready to detect!")
 
@@ -73,6 +90,9 @@ if __name__ == "__main__":
     parent_conn, child_conn = Pipe()
     pred_process = Process(target=print_prediction, args=(child_conn,))
     pred_process.start()
+    parent_conn_beep, child_conn_beep = Pipe()
+    beep_process = Process(target=beep_function, args=(child_conn_beep,))
+    beep_process.start()
 
     event_t = spike.size
     t = 0
@@ -116,6 +136,7 @@ if __name__ == "__main__":
             if parent_conn.poll():
                 first_detected_time, detected_spike_type = parent_conn.recv()
                 if not first_detected_time - last_detected_time < refractory_period:
+                    parent_conn_beep.send(detected_spike_type)  # Beep. Just for fun. But in separate process to not cause the plot to lag.
                     spike_onsets.append(data.size - (t - first_detected_time))
                     if detected_spike_type == 1:
                         spike_curves.append(plot_obj.plot(np.arange(spike_onsets[-1], spike_onsets[-1]+sample_window), data[spike_onsets[-1]: spike_onsets[-1] + sample_window], pen=spike_pen))
