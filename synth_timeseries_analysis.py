@@ -28,6 +28,8 @@ def start_event():
     """ Start the timer of a spike event """
     global event_t
     event_t = 0
+    global spike_type
+    spike_type = np.random.randint(1, 3)
 
 def print_prediction(pipe):
     """
@@ -39,25 +41,33 @@ def print_prediction(pipe):
     import tensorflow as tf
     tf.TF_CPP_MIN_LOG_LEVEL=2
     tf.enable_eager_execution()
-    model = tf.keras.models.load_model("spike_detector_units16_windowsize17.h5")
+    model = tf.keras.models.load_model("spike_detector_classes3_units16_windowsize17.h5")
     print("")
     print("Ready to detect!")
 
     while True:
-        samples, start_times = pipe.recv()
-        prediction = np.round(model.predict(samples))
+        samples, start_times = pipe.recv()  # wait for new batch of samples to arrive
 
-        if np.any(prediction):
-            prediction = prediction.flatten()
-            first_detection_index = np.where(prediction == 1.)[0][0]
-            pipe.send(start_times[first_detection_index])
-            print("Spike detected!")
+        estimates = model.predict(samples)  # get the model class probabilities (output shape (batch_size, num_classes))
+        prediction = np.argmax(estimates, axis=-1).flatten()  # get the class predictions
+
+        spike_candidates = np.where(prediction != 0)[0]  # now look at all samples which get classified as not class 0 (background noise)
+        if spike_candidates.size > 0:  # if there are any:
+            max_prediction = np.max(estimates[spike_candidates], axis=-1).flatten()  # get the highest class probabiliy for each non-noise sample ...
+            strongest_pred_pos = np.argmax(max_prediction)  # ... and check which one has the highest probability for whatever class it happens to be
+            if max_prediction[strongest_pred_pos] > 0.9:  # if the confidence is above 90%, we accept it as a detection!
+                accepted_sample_index = spike_candidates[strongest_pred_pos]  # make sure to convert the only-non-noise-index "strongest_pred_pos" back to the overall-sample-index by feeding it back into "spike_candidates"
+                pipe.send((start_times[accepted_sample_index], prediction[accepted_sample_index]))
+                print("Spike of type {0} detected, confidence {1:.3f}!".format(prediction[accepted_sample_index], max_prediction[strongest_pred_pos]))
 
 if __name__ == "__main__":
     window_size = 160
 
     data = np.zeros(window_size, dtype=np.float32)
+    # spike of size 13
     spike = np.array([0., 20., 40., 60., 40., 20., 0., -20., -40., -60., -40., -20., 0.], dtype=np.float32)
+    # reverse spike of size 13
+    reverse_spike = np.array(list(reversed([0., 20., 40., 60., 40., 20., 0., -20., -40., -60., -40., -20., 0.])), dtype=np.float32)
 
     multiprocessing.set_start_method('spawn')
     parent_conn, child_conn = Pipe()
@@ -84,13 +94,18 @@ if __name__ == "__main__":
 
     spike_onsets = []  # store some ROI rectangles for spike marking
     spike_pen = pg.mkPen('r', width=2)
+    reverse_spike_pen = pg.mkPen('b', width=2)
     spike_curves = []
+    spike_type = 1  # 1: first up, then down, 2: first down, then up
 
     while True:
         sample = 20 * (np.random.random() - 0.5)  # create a new random data point between -10 and 10
 
         if event_t < spike.size:  # if a spike event has been triggered by clicking the mouse
-            sample += spike[event_t]
+            if spike_type == 1:
+                sample += spike[event_t]
+            else:
+                sample += reverse_spike[event_t]
             event_t += 1
 
         data[:-1] = np.copy(data[1:])
@@ -99,10 +114,13 @@ if __name__ == "__main__":
         if detecting:
             first_detected_time = None
             if parent_conn.poll():
-                first_detected_time = parent_conn.recv()
+                first_detected_time, detected_spike_type = parent_conn.recv()
                 if not first_detected_time - last_detected_time < refractory_period:
                     spike_onsets.append(data.size - (t - first_detected_time))
-                    spike_curves.append(plot_obj.plot(np.arange(spike_onsets[-1], spike_onsets[-1]+sample_window), data[spike_onsets[-1]: spike_onsets[-1] + sample_window], pen=spike_pen))
+                    if detected_spike_type == 1:
+                        spike_curves.append(plot_obj.plot(np.arange(spike_onsets[-1], spike_onsets[-1]+sample_window), data[spike_onsets[-1]: spike_onsets[-1] + sample_window], pen=spike_pen))
+                    else:
+                        spike_curves.append(plot_obj.plot(np.arange(spike_onsets[-1], spike_onsets[-1]+sample_window), data[spike_onsets[-1]: spike_onsets[-1] + sample_window], pen=reverse_spike_pen))
                     last_detected_time = first_detected_time
                 else:
                     print("\tSpike rejected!")
