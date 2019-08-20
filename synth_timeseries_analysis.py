@@ -92,7 +92,7 @@ if __name__ == "__main__":
     win.scene().sigMouseClicked.connect(start_event)
     win.sigKeyPressed.connect(keyPressHandler)
 
-    spike_onsets = []  # store some ROI rectangles for spike marking
+    spike_onsets = []  # store the detected spike onsets for spike marking in the plot
     spike_pen = pg.mkPen('r', width=2)
     reverse_spike_pen = pg.mkPen('b', width=2)
     spike_curves = []
@@ -139,7 +139,10 @@ if __name__ == "__main__":
 
         pg.QtGui.QApplication.processEvents()
 
-        t += 1
+        t += 1  # advance the global time
+
+        # move the spike onset markers to the left to follow the moving plot
+        # remove them if they touch the left boundary (at index 0)
         for i in reversed(range(len(spike_onsets))):
             if spike_onsets[i] == 0:
                 spike_onsets.pop(i)
