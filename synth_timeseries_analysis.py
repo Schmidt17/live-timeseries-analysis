@@ -1,13 +1,10 @@
 import numpy as np
-#import threading
 import multiprocessing
 from multiprocessing import Process, Pipe
-
 import pyqtgraph as pg
 
-
-
 class KeyPressWindow(pg.GraphicsWindow):
+	"""Subclass pyqtgraph's GraphicsWindow to add a signal for a key being pressed."""
     sigKeyPressed = pg.QtCore.pyqtSignal(object)
 
     def __init__(self, *args, **kwargs):
@@ -18,10 +15,7 @@ class KeyPressWindow(pg.GraphicsWindow):
         self.sigKeyPressed.emit(ev)
 
 def keyPressHandler(ev):
-	if ev.key() == 84: # key "t"
-		# toggle training
-		pass
-	elif ev.key() == 68: # key "d"
+	if ev.key() == 68: # key "d"
 		# toggle detecting
 		global detecting
 		detecting = not detecting
@@ -31,26 +25,17 @@ def keyPressHandler(ev):
 			print("Stopped detecting.")
 
 def start_event():
+	""" Start the timer of a spike event """
 	global event_t
 	event_t = 0
 
-# class Predictor(threading.Thread):
-
-# 	def __init__(self, model):
-# 		super(Predictor, self).__init__(daemon=True)
-# 		self.model = model
-# 		self.samples = None
-# 		self.predict_event = threading.Event()
-
-# 	def run(self):
-# 		while True:
-# 			self.predict_event.wait()
-# 			prediction = np.round(self.model.predict(self.samples))
-# 			if np.any(prediction):
-# 				print("Spike detected!")
-# 			self.predict_event.clear()
-
 def print_prediction(pipe):
+	"""
+	Performs the classification. 
+	This is run in a separate process and encapsulates all tensorflow operations.
+	Data is fed from the main process over a multiprocessing Pipe and the classification
+	results are returned via the same Pipe.
+	"""
 	import tensorflow as tf
 	tf.TF_CPP_MIN_LOG_LEVEL=2
 	tf.enable_eager_execution()
@@ -61,7 +46,6 @@ def print_prediction(pipe):
 	while True:
 		samples, start_times = pipe.recv()
 		prediction = np.round(model.predict(samples))
-		# prediction = np.array([np.round(model.predict(samples[i].reshape((1, -1, 1)))) for i in range(len(samples))])
 
 		if np.any(prediction):
 			prediction = prediction.flatten()
@@ -69,15 +53,6 @@ def print_prediction(pipe):
 			pipe.send(start_times[first_detection_index])
 			print("Spike detected!")
 
-
-# if __name__ != "__main__":
-# 	import tensorflow as tf
-# 	tf.logging.set_verbosity(tf.logging.ERROR)
-# 	tf.enable_eager_execution()
-# 	model = tf.keras.models.load_model("spike_detector_32.h5")
-
-#predictor = Predictor(model)
-#predictor.start()
 if __name__ == "__main__":
 	window_size = 160
 
@@ -107,14 +82,14 @@ if __name__ == "__main__":
 	win.scene().sigMouseClicked.connect(start_event)
 	win.sigKeyPressed.connect(keyPressHandler)
 
-	ROIs = []  # store some ROI rectangles for spike marking
-	roi_pen = pg.mkPen('r', width=2)
-	roi_curves = []
+	spike_onsets = []  # store some ROI rectangles for spike marking
+	spike_pen = pg.mkPen('r', width=2)
+	spike_curves = []
 
 	while True:
-		sample = 20 * (np.random.random() - 0.5)
+		sample = 20 * (np.random.random() - 0.5)  # create a new random data point between -10 and 10
 
-		if event_t < spike.size:
+		if event_t < spike.size:  # if a spike event has been triggered by clicking the mouse
 			sample += spike[event_t]
 			event_t += 1
 
@@ -126,8 +101,8 @@ if __name__ == "__main__":
 			if parent_conn.poll():
 				first_detected_time = parent_conn.recv()
 				if not first_detected_time - last_detected_time < refractory_period:
-					ROIs.append(data.size - (t - first_detected_time))
-					roi_curves.append(plot_obj.plot(np.arange(ROIs[-1], ROIs[-1]+sample_window), data[ROIs[-1]: ROIs[-1] + sample_window], pen=roi_pen))
+					spike_onsets.append(data.size - (t - first_detected_time))
+					spike_curves.append(plot_obj.plot(np.arange(spike_onsets[-1], spike_onsets[-1]+sample_window), data[spike_onsets[-1]: spike_onsets[-1] + sample_window], pen=spike_pen))
 					last_detected_time = first_detected_time
 				else:
 					print("\tSpike rejected!")
@@ -141,16 +116,16 @@ if __name__ == "__main__":
 				start_times_buffer = []
 
 		main_curve.setData(data)
-		for i, roi in enumerate(ROIs):
-			roi_curves[i].setData(np.arange(roi, roi+sample_window), data[roi: roi + sample_window])
+		for i, roi in enumerate(spike_onsets):
+			spike_curves[i].setData(np.arange(roi, roi+sample_window), data[roi: roi + sample_window])
 
 		pg.QtGui.QApplication.processEvents()
 
 		t += 1
-		for i in reversed(range(len(ROIs))):
-			if ROIs[i] == 0:
-				ROIs.pop(i)
-				plot_obj.removeItem(roi_curves[i])
-				roi_curves.pop(i)
+		for i in reversed(range(len(spike_onsets))):
+			if spike_onsets[i] == 0:
+				spike_onsets.pop(i)
+				plot_obj.removeItem(spike_curves[i])
+				spike_curves.pop(i)
 			else:
-				ROIs[i] = ROIs[i] - 1
+				spike_onsets[i] = spike_onsets[i] - 1
